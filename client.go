@@ -11,10 +11,25 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// Transport 通信抽象接口
+// Send: 发送消息
+// OnMessage: 注册消息回调
+// Close: 关闭连接
+// Listen: 启动消息循环（如有需要）
+type Transport interface {
+	Send(messageType int, data []byte) error
+	OnMessage(handler MessageHandler)
+	Close() error
+	Listen() error
+	SetHeartbeat(heartbeatInterval time.Duration, heartbeatFn func() (int, []byte))
+}
+
 type ResponseHandler func(*openapi.ProtoMessage)
 
+// 修改Client结构体，底层通信改为Transport接口
+// 并将NewClient的第一个参数类型由*WsClient改为Transport
 type Client struct {
-	ws            *WsClient
+	transport     Transport
 	msgId         uint64
 	lock          sync.Mutex
 	pending       map[string]chan *openapi.ProtoMessage
@@ -25,23 +40,23 @@ type Client struct {
 	accessToken  string
 }
 
-func NewClient(ws *WsClient, clientId, clientSecret, accessToken string) *Client {
+func NewClientWithTransport(transport Transport, clientId, clientSecret, accessToken string) *Client {
 	c := &Client{
-		ws:            ws,
+		transport:     transport,
 		pending:       make(map[string]chan *openapi.ProtoMessage),
 		eventHandlers: make(map[uint32][]ResponseHandler),
 		clientId:      clientId,
 		clientSecret:  clientSecret,
 		accessToken:   accessToken,
 	}
-	ws.OnMessage(c.handleMessage)
+	transport.OnMessage(c.handleMessage)
 	return c
 }
 
-// 新的构造函数，自动封装ProtoHeartbeatEvent心跳
-func NewClientWithHeartbeat(url, clientId, clientSecret, accessToken string, heartbeatInterval time.Duration) *Client {
-	ws := NewWsClientWithHeartbeat(url, nil, 0, nil) // 先不设置心跳
-	client := NewClient(ws, clientId, clientSecret, accessToken)
+// NewClientWithWebsocket 使用 WebSocket 创建 Client
+func NewClientWithWebsocket(addr, clientId, clientSecret, accessToken string, heartbeatInterval time.Duration) *Client {
+	ws := NewWsClientWithHeartbeat(addr, nil, 0, nil)
+	client := NewClientWithTransport(ws, clientId, clientSecret, accessToken)
 	ws.SetHeartbeat(heartbeatInterval, func() (int, []byte) {
 		hb := &openapi.ProtoHeartbeatEvent{}
 		data, _ := proto.Marshal(hb)
@@ -49,6 +64,22 @@ func NewClientWithHeartbeat(url, clientId, clientSecret, accessToken string, hea
 	})
 	go ws.Listen()
 	return client
+}
+
+// NewClientWithTcp 使用 TCP 创建 Client
+func NewClientWithTcp(addr, clientId, clientSecret, accessToken string) (*Client, error) {
+	tcp, err := NewTcpClient(addr)
+	if err != nil {
+		return nil, err
+	}
+	client := NewClientWithTransport(tcp, clientId, clientSecret, accessToken)
+	go tcp.Listen()
+	return client, nil
+}
+
+// NewClient 默认使用 WebSocket 方式创建 Client
+func NewClient(addr, clientId, clientSecret, accessToken string, heartbeatInterval time.Duration) *Client {
+	return NewClientWithWebsocket(addr, clientId, clientSecret, accessToken, heartbeatInterval)
 }
 
 func (c *Client) nextMsgId() string {
@@ -77,7 +108,7 @@ func (c *Client) SendRequest(ctx context.Context, payloadType uint32, payload pr
 	c.lock.Lock()
 	c.pending[msgId] = ch
 	c.lock.Unlock()
-	err = c.ws.Send(websocket.BinaryMessage, raw)
+	err = c.transport.Send(websocket.BinaryMessage, raw)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +158,7 @@ func (c *Client) OnEvent(payloadType uint32, handler ResponseHandler) {
 }
 
 func (c *Client) Close() error {
-	return c.ws.Close()
+	return c.transport.Close()
 }
 
 // ApplicationAuth 应用鉴权
