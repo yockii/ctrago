@@ -20,10 +20,10 @@ func NewAccount(client *Client, accountId int64) *Account {
 }
 
 // 示例：账户登录
-func (a *Account) Auth(ctx context.Context, accessToken string) (*openapi.ProtoOAAccountAuthRes, error) {
+func (a *Account) Auth(ctx context.Context) (*openapi.ProtoOAAccountAuthRes, error) {
 	req := &openapi.ProtoOAAccountAuthReq{
-		CtidTraderAccountId: &a.accountId,
-		AccessToken:         &accessToken,
+		CtidTraderAccountId: proto.Int64(a.accountId),
+		AccessToken:         proto.String(a.client.accessToken),
 	}
 	respMsg, err := a.client.SendRequest(ctx, uint32(openapi.ProtoOAPayloadType_PROTO_OA_ACCOUNT_AUTH_REQ), req)
 	if err != nil {
