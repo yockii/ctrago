@@ -49,4 +49,6 @@ func (a *Account) Trader() *AccountTrader {
 	return &AccountTrader{Account: a}
 }
 
-// 你可以继续扩展更多账户相关方法，如下单、查询等
+func (a *Account) Asset() *AccountAsset {
+	return &AccountAsset{Account: a}
+}
