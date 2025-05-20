@@ -1,6 +1,7 @@
 package ctrago
 
 import (
+	"fmt"
 	"net"
 	"sync"
 	"time"
@@ -31,6 +32,9 @@ func NewTcpClient(addr string) (*TcpClient, error) {
 func (c *TcpClient) Send(messageType int, data []byte) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
+	if c.conn == nil {
+		return fmt.Errorf("tcp not connected")
+	}
 	_, err := c.conn.Write(data)
 	return err
 }

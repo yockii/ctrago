@@ -1,6 +1,7 @@
 package ctrago
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -24,8 +25,11 @@ type WsClient struct {
 }
 
 // NewWsClientWithHeartbeat 支持心跳和重连的构造方法
-func NewWsClientWithHeartbeat(url string, dialer *websocket.Dialer, heartbeatInterval time.Duration, heartbeatFn func() (int, []byte)) *WsClient {
-	return &WsClient{
+func NewWsClientWithHeartbeat(url string, dialer *websocket.Dialer, heartbeatInterval time.Duration, heartbeatFn func() (int, []byte)) (*WsClient, error) {
+	if dialer == nil {
+		dialer = websocket.DefaultDialer
+	}
+	client := &WsClient{
 		url:               url,
 		dialer:            dialer,
 		heartbeatInterval: heartbeatInterval,
@@ -34,6 +38,10 @@ func NewWsClientWithHeartbeat(url string, dialer *websocket.Dialer, heartbeatInt
 		reconnect:         true,
 		closeCh:           make(chan struct{}),
 	}
+	if err := client.connect(); err != nil {
+		return nil, err
+	}
+	return client, nil
 }
 
 func NewWsClient(conn *websocket.Conn) *WsClient {
@@ -57,6 +65,9 @@ func (c *WsClient) connect() error {
 func (c *WsClient) Send(messageType int, data []byte) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
+	if c.conn == nil {
+		return fmt.Errorf("websocket not connected")
+	}
 	return c.conn.WriteMessage(messageType, data)
 }
 

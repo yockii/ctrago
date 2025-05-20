@@ -53,9 +53,25 @@ func NewClientWithTransport(transport Transport, clientId, clientSecret, accessT
 	return c
 }
 
-// NewClientWithWebsocket 使用 WebSocket 创建 Client
-func NewClientWithWebsocket(addr, clientId, clientSecret, accessToken string, heartbeatInterval time.Duration) *Client {
-	ws := NewWsClientWithHeartbeat(addr, nil, 0, nil)
+// endpointByEnv 根据 isLive 和 isWebsocket 返回对应的 endpoint
+func endpointByEnv(isLive, isWebsocket bool) string {
+	host := "demo.ctraderapi.com:5035"
+	if isLive {
+		host = "live.ctraderapi.com:5035"
+	}
+	if isWebsocket {
+		return "wss://" + host
+	}
+	return host
+}
+
+// NewClientWithWebsocket 使用 WebSocket 创建 Client，自动选择 endpoint
+func NewClientWithWebsocket(isLive bool, clientId, clientSecret, accessToken string, heartbeatInterval time.Duration) (*Client, error) {
+	addr := endpointByEnv(isLive, true)
+	ws, err := NewWsClientWithHeartbeat(addr, nil, 0, nil)
+	if err != nil {
+		return nil, err
+	}
 	client := NewClientWithTransport(ws, clientId, clientSecret, accessToken)
 	ws.SetHeartbeat(heartbeatInterval, func() (int, []byte) {
 		hb := &openapi.ProtoHeartbeatEvent{}
@@ -63,11 +79,12 @@ func NewClientWithWebsocket(addr, clientId, clientSecret, accessToken string, he
 		return websocket.BinaryMessage, data
 	})
 	go ws.Listen()
-	return client
+	return client, nil
 }
 
-// NewClientWithTcp 使用 TCP 创建 Client
-func NewClientWithTcp(addr, clientId, clientSecret, accessToken string) (*Client, error) {
+// NewClientWithTcp 使用 TCP 创建 Client，自动选择 endpoint
+func NewClientWithTcp(isLive bool, clientId, clientSecret, accessToken string) (*Client, error) {
+	addr := endpointByEnv(isLive, false)
 	tcp, err := NewTcpClient(addr)
 	if err != nil {
 		return nil, err
@@ -77,9 +94,9 @@ func NewClientWithTcp(addr, clientId, clientSecret, accessToken string) (*Client
 	return client, nil
 }
 
-// NewClient 默认使用 WebSocket 方式创建 Client
-func NewClient(addr, clientId, clientSecret, accessToken string, heartbeatInterval time.Duration) *Client {
-	return NewClientWithWebsocket(addr, clientId, clientSecret, accessToken, heartbeatInterval)
+// NewClient 默认使用 WebSocket 方式创建 Client，自动选择 endpoint
+func NewClient(isLive bool, clientId, clientSecret, accessToken string, heartbeatInterval time.Duration) (*Client, error) {
+	return NewClientWithWebsocket(isLive, clientId, clientSecret, accessToken, heartbeatInterval)
 }
 
 func (c *Client) nextMsgId() string {
